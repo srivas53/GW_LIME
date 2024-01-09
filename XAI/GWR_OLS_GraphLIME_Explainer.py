@@ -42,21 +42,21 @@ from sklearn.metrics import mean_absolute_error
 os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME\XAI")
 
 
-################Calculate bandwidth for GWR########################################
+################Calculate optimal bandwidth for GWR########################################
 
-prepare_GWR_weights = False
+prepare_GWR_weights = False #Set to True to recalculate optimal bandwidth
 
 if prepare_GWR_weights == True:
     mex_migration = pd.read_csv("./data/mexico_migration_explanation_input_with_crime_no_implicit_target_num_migrants_df.csv")
     
     
-    ##Add target variable (preddections from upstream model)
+    ##Add target variable (predictions from the GraphSAGE model, used as the ground truth value, refer to Section 3.3.3, paragraph 1 of the paper)
     with open("./data/predictions_target_with_crime_no_implicit_target_num_migrants.txt", 'r') as file:
         predictions = ast.literal_eval(file.read())
         
     
     
-    target = 'sum_num_initmig' #perc_migrants, sum_num_initmig
+    target = 'sum_num_initmig' 
     predictions = pd.DataFrame(predictions, columns = [target])
     
     mex_migration = pd.merge(mex_migration, predictions, left_index = True, right_index = True, how = 'left')
@@ -65,14 +65,14 @@ if prepare_GWR_weights == True:
     
     #Execute Principal Component Extraction to avoid issues due to multicollinearity while calculating optimal bandwidth for GWR (See Section 3.3.2 of the paper)
     all_columns = list(mex_migration.columns) #store a list of all columns in the dataset
-    predictor_columns = [i for i in all_columns if i not in ['GEO2_MX', target, 'Latitude', 'Longitude']]
+    predictor_columns = [i for i in all_columns if i not in ['GEO2_MX', target, 'Latitude', 'Longitude']] #exclude columns that are not in the expalanatory variable set
     predictor_dataframe = mex_migration[predictor_columns]
     
     
     predictor_dataframe = scaler.fit_transform(predictor_dataframe)
     
     
-    # #cross validation to select optimal PC's to retain was executed, 20 to retain was the verdict
+    #cross validation to select optimal PC's to retain was executed, 20 to retain was the ideal value
     
     n_components = 20
     
@@ -98,7 +98,7 @@ if prepare_GWR_weights == True:
     v = mex_dataframe_principal_components['Latitude']
     coords = list(zip(u,v))
     
-    # #prepare data in the requred format for weights extraction
+    #prepare data in the requred format for extracting neighborhood weights
     
     all_columns = list(mex_dataframe_principal_components.columns) #store a list of all columns in the dataset
     
@@ -122,11 +122,11 @@ if prepare_GWR_weights == True:
     gwr_selector = Sel_BW(coords, y, X, spherical= True)
     gwr_bw = gwr_selector.search()
     print('GWR bandwidth =', gwr_bw)
-    #GWR bandwidth = 151.0
+    #Optimal GWR bandwidth = 151.0
     
     
     
-    # #fit a GWR model to extract the weights
+    #Fit a GWR model to extract the weights (adaptive bisquare, golden selection rule, refer to Section 3.3.2)
     gwr_results = GWR(np.array(coords), np.array(y), np.array(X), gwr_bw).fit()
     
     
@@ -149,20 +149,22 @@ if prepare_GWR_weights == True:
     
     gwr_weights_df.to_csv('./data/GWR_Weights_adaptive_bisquare_target_num_migrants_crime_variables_no_implicit_PCA.csv', index= False)
 
-################################################################Start LIME Explanations################
+
+##Execute XAI computations (LIME and GW-LIME)
 
 
+#Import dataset
 
 mex_migration = pd.read_csv("./data/mexico_migration_explanation_input_with_crime_no_implicit_target_num_migrants_df.csv")
 
 
-##Add target variable (preddections from upstream model)
+#Add target variable (predictions from the GraphSAGE model, used as the ground truth value, refer to Section 3.3.3, paragraph 1 of the paper)
 with open("./data/predictions_target_with_crime_no_implicit_target_num_migrants.txt", 'r') as file:
     predictions = ast.literal_eval(file.read())
     
 
 
-target = 'sum_num_initmig' #perc_migrants, sum_num_initmig
+target = 'sum_num_initmig' 
 predictions = pd.DataFrame(predictions, columns = [target])
 
 mex_migration = pd.merge(mex_migration, predictions, left_index = True, right_index = True, how = 'left')
@@ -170,18 +172,17 @@ mex_migration = pd.merge(mex_migration, predictions, left_index = True, right_in
 
 
 
-######Reimport the entire dataset (all socio-eco variables, plus three satellie PC's)
+#######Model 1: GW-LIME###########
+
+#Data cleaning and preprocessing
 mex_migration_GWR_LIME = mex_migration.copy()
-
-#mex_migration_GWR_LIME = pd.read_csv(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\mexico_migration_explanation_input_df_2023_9_28_14_50.csv")
-
 
 mex_migration_GWR_LIME['GEO2_MX'] = mex_migration_GWR_LIME['GEO2_MX'].astype(str)
 
 mex_migration_GWR_LIME = mex_migration_GWR_LIME.fillna(0)
 
 
-#prepare for running Lars path
+#Prepare a dataframe containing only the predictor variables
 all_columns = list(mex_migration_GWR_LIME.columns)
 predictor_columns = [i for i in all_columns if i not in ['GEO2_MX', target, 'Latitude', 'Longitude']]
 
@@ -193,7 +194,7 @@ predictor_dataframe_for_correlation = predictor_dataframe.copy()
 
 
 
-#standardize the predictor data
+#standardize the predictor variable dataframe
 
 predictor_dataframe = scaler.fit_transform(predictor_dataframe)
 
@@ -203,7 +204,7 @@ predicted_dataframe = mex_migration_GWR_LIME[[target]]
 
 y = predicted_dataframe.values.reshape((-1,1)) # reshape is needed to have column array
 
-#import geographical weights
+#import neighborhood weights calculated using GWR
 
 gwr_weights_df = pd.read_csv("./data/GWR_Weights_adaptive_bisquare_target_num_migrants_crime_variables_no_implicit_PCA.csv")
 
@@ -211,50 +212,46 @@ gwr_weights_df['weights'] = gwr_weights_df['weights'].apply(ast.literal_eval)
 
 gwr_weights_df['GEO2_MX'] = gwr_weights_df['GEO2_MX'].astype(str)
 
-##############################correlation analysis##############
-correlation_matrix = predictor_dataframe_for_correlation.corr()
+##############################Note: Not relevant for GW-LIME: correlation analysis##############
+# correlation_matrix = predictor_dataframe_for_correlation.corr()
 
-#for a given variable of interest, return any other variables that have >= (+-).90 coreelation
+# #for a given variable of interest, return any other variables that have >= (+-).90 coreelation
 
-def return_other_correlated_variables(instance_of_interest, feature_name):
-    neighborhood = gwr_weights_df[gwr_weights_df['GEO2_MX']== instance_of_interest]
-    neighborhood = neighborhood.reset_index(drop = True)
-    neighborhood_wts = neighborhood.loc[0, 'weights']
-    indexes_to_consider = []
-    for i in range(len(neighborhood_wts)):
-        if neighborhood_wts[i] > 0.50:
-            indexes_to_consider.append(i)
+# def return_other_correlated_variables(instance_of_interest, feature_name):
+#     neighborhood = gwr_weights_df[gwr_weights_df['GEO2_MX']== instance_of_interest]
+#     neighborhood = neighborhood.reset_index(drop = True)
+#     neighborhood_wts = neighborhood.loc[0, 'weights']
+#     indexes_to_consider = []
+#     for i in range(len(neighborhood_wts)):
+#         if neighborhood_wts[i] > 0.50:
+#             indexes_to_consider.append(i)
     
-    subset_neighborhood = predictor_dataframe_for_correlation.iloc[indexes_to_consider]
-    neighborhood_correlation_matrix = subset_neighborhood.corr()
-    corr_subset = pd.DataFrame(neighborhood_correlation_matrix[feature_name])
-    corr_subset = corr_subset.reset_index()
+#     subset_neighborhood = predictor_dataframe_for_correlation.iloc[indexes_to_consider]
+#     neighborhood_correlation_matrix = subset_neighborhood.corr()
+#     corr_subset = pd.DataFrame(neighborhood_correlation_matrix[feature_name])
+#     corr_subset = corr_subset.reset_index()
     
-    corr_dict = {}
+#     corr_dict = {}
     
-    for i in range(len(corr_subset)):
-        if abs(corr_subset.loc[i, feature_name])>=0.80:
-            if corr_subset.loc[i, 'index'] != feature_name:
-                corr_dict[corr_subset.loc[i, 'index']] = corr_subset.loc[i, feature_name]
+#     for i in range(len(corr_subset)):
+#         if abs(corr_subset.loc[i, feature_name])>=0.80:
+#             if corr_subset.loc[i, 'index'] != feature_name:
+#                 corr_dict[corr_subset.loc[i, 'index']] = corr_subset.loc[i, feature_name]
     
-    return corr_dict
+#     return corr_dict
 
                 
-skal =  return_other_correlated_variables('484001001', 'perc_piped_inside_dwelling_watsup')
+# corr_value =  return_other_correlated_variables('484001001', 'perc_piped_inside_dwelling_watsup')
 
 
 
-
-
-
-
-#define function to return : k most important features, R squared, RMSE, 
+#Define function to execute K-Lasso, and return the given values: k most important features, local R squared, local MAE, local MAPE (Refer to Section 3.2, paragraph 5 for more on K-Lasso, and Section 3.3.3, paragraph 1 for local R-sqared and MAE) 
 def gwr_lasso_explain_instance(geo_id_of_interest, number_of_features_k, return_only_performance_metrics = True): #provide id as a string
     instance_of_interest = gwr_weights_df[gwr_weights_df['GEO2_MX'] ==geo_id_of_interest]
     instance_index = instance_of_interest.index
     instance_of_interest = instance_of_interest.reset_index(drop = True)
     
-    #processing weights according to Wheele'rs implementation
+    #processing weights according to Wheeler's implementation
     instance_of_interest_neighborhood_wts = instance_of_interest.loc[0, 'weights']
     instance_of_interest_neighborhood_wts = np.array(instance_of_interest_neighborhood_wts)
     instance_of_interest_neighborhood_wts = instance_of_interest_neighborhood_wts.reshape(-1, 1)
@@ -318,12 +315,6 @@ def gwr_lasso_explain_instance(geo_id_of_interest, number_of_features_k, return_
     # instance_residual = residuals[instance_index][0][0]
     # residuals = pd.DataFrame(residuals, columns = ['residuals'])
     # weighted_residuals = pd.DataFrame(weighted_residuals, columns = ['weighted_residuals']) 
-    
-    
-    
-    
-    
-    
     
     
     #########using statsmodels to fit LM############################
@@ -402,152 +393,21 @@ def gwr_lasso_explain_instance(geo_id_of_interest, number_of_features_k, return_
     return [explanations_df, adjusted_r_squared, rmse, mae, instance_residual, mape, residuals, weighted_residuals, instance_predicted_value]
 
 
-# explanation_moderate = gwr_lasso_explain_instance('484014045', 10, return_only_performance_metrics = False)[0]
-# explanation_low = gwr_lasso_explain_instance('484025014', 10, return_only_performance_metrics = False)[0]
-# explanation_high = gwr_lasso_explain_instance('484026006', 10, return_only_performance_metrics = False)[0]
+#####Execute function defined above to extract explanations and performance metrics for a given municipality#########
 
 explanation_yucatan = gwr_lasso_explain_instance('484004002', 10, return_only_performance_metrics = True)[1:4]
 explanation_sinaloa = gwr_lasso_explain_instance('484010034', 10, return_only_performance_metrics = False)[0]#484025003
 explanation_colima  = gwr_lasso_explain_instance('484016026', 10, return_only_performance_metrics = False)[0]#484025003
 
-# explanation_queretaro  = gwr_lasso_explain_instance('484022014', 10, return_only_performance_metrics = False)[0]#484025003
-#484026058 (sonora) {rich}, 484007096 (chiapas) {poor}
-# ##Cases:
-# #Low education (wrt secondary): 484020202
-# #High education (wrt secondary): 484015052
-
-# #low wealth (property ownership) : 484014046
-# #high wealth (property ownership) : 484020382
-
-# #urban : 484031007
-# #rural: 484020382
-
-# explanation_low_edu = gwr_lasso_explain_instance('484020202', 15, return_only_performance_metrics = False)[0]
-
-# explanation_high_edu = gwr_lasso_explain_instance('484015052', 10, return_only_performance_metrics = False)[0]
-
-# explanation_low_wealth = gwr_lasso_explain_instance('484014046', 10, return_only_performance_metrics = False)[0]
-
-# explanation_high_wealth = gwr_lasso_explain_instance('484020382', 10, return_only_performance_metrics = False)[0]
-
-explanation_sonora = gwr_lasso_explain_instance('484026058', 10, return_only_performance_metrics = False)[0]
-explanation_chiapas = gwr_lasso_explain_instance('484007096', 10, return_only_performance_metrics = False)[0]
 
 
+##For every municipality, return performance metrics values for local fidelity experiment (Refer Section 3.3.3, paragraph 1)
 
-#Analysis by state
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants\top_k_important_features\GWR_LIME")
-#aguacalientes (484001002)
-explanation_aguacalientes = gwr_lasso_explain_instance('484001001', 10, return_only_performance_metrics = False)[0]
-fit_aguacalientes = gwr_lasso_explain_instance('484001001', 10, return_only_performance_metrics = True)[1:4]
-explanation_aguacalientes.to_csv('explanation_aguacalientes_gwr_lime.csv', index = False)
-
-#Baja California 484002001
-explanation_baja_cali = gwr_lasso_explain_instance('484002001', 10, return_only_performance_metrics = False)[0]
-fit_baja_cali = gwr_lasso_explain_instance('484002001', 10, return_only_performance_metrics = True)[1:4]
-explanation_baja_cali.to_csv('GWR_LIME_explanation_484002001.csv', index = False)
-
-
-#Baja California Sur (484003001)
-explanation_baja_cali_sur = gwr_lasso_explain_instance('484003001', 10, return_only_performance_metrics = False)[0]
-fit_baja_cali_sur = gwr_lasso_explain_instance('484003001', 10, return_only_performance_metrics = True)[1:4]
-explanation_baja_cali_sur.to_csv('GWR_LIME_explanation_484003001.csv', index = False)
-
-
-#Campeche 484004003
-explanation_campeche = gwr_lasso_explain_instance('484004003', 10, return_only_performance_metrics = False)[0]
-fit_campeche = gwr_lasso_explain_instance('484004003', 10, return_only_performance_metrics = True)[1:4]
-explanation_campeche.to_csv('GWR_LIME_explanation_484004003.csv', index = False)
-
-#Chihuahua 484008018
-
-explanation_chihuahua = gwr_lasso_explain_instance('484008018', 10, return_only_performance_metrics = False)[0]
-fit_chihuahua = gwr_lasso_explain_instance('484008018', 10, return_only_performance_metrics = True)[1:4]
-explanation_chihuahua.to_csv('GWR_LIME_explanation_484008018.csv', index = False)
-
-
-# Coahuila 484005002
-explanation_coahuila = gwr_lasso_explain_instance('484005020', 10, return_only_performance_metrics = False)[0]
-fit_coahuila= gwr_lasso_explain_instance('484005002', 10, return_only_performance_metrics = True)[1:4]
-
-#Durango (484010011)
-explanation_durango = gwr_lasso_explain_instance('484010003', 10, return_only_performance_metrics = False)[0]
-fit_durango= gwr_lasso_explain_instance('484010003', 15, return_only_performance_metrics = True)[1:4]
-
-#Guerrero (484012051) (on do not travel list)
-explanation_guerrero = gwr_lasso_explain_instance('484012048', 10, return_only_performance_metrics = False)[0]
-fit_guerrero= gwr_lasso_explain_instance('484012048', 10, return_only_performance_metrics = True)[1:4]
-explanation_guerrero.to_csv('explanation_guerrero_gwr_lime.csv', index = False)
-
-
-#Jalisco: 484014058
-explanation_jalisco = gwr_lasso_explain_instance('484014058', 10, return_only_performance_metrics = False)[0]
-fit_jalisco= gwr_lasso_explain_instance('484014058', 10, return_only_performance_metrics = True)[1:4]
-
-#484028014
-explanation_neuvo_leon = gwr_lasso_explain_instance('484028014', 10, return_only_performance_metrics = False)[0]
-fit_neuvo_leon = gwr_lasso_explain_instance('484028014', 10, return_only_performance_metrics = True)[1:4]
-
-#Oaxaca (484020201)
-explanation_oaxaca = gwr_lasso_explain_instance('484020475', 10, return_only_performance_metrics = False)[0]
-fit_oaxaca = gwr_lasso_explain_instance('484020475', 10, return_only_performance_metrics = True)[1:4]
-explanation_oaxaca.to_csv('explanation_oaxaca_gwr_lime.csv', index = False)
-
-#484015107, 484015021
-explanation_edomex = gwr_lasso_explain_instance('484015021', 10, return_only_performance_metrics = False)[0]
-fit_edomex = gwr_lasso_explain_instance('484015021', 10, return_only_performance_metrics = True)[1:4]
-
-#morelos (484017006)
-explanation_morelos = gwr_lasso_explain_instance('484017006', 10, return_only_performance_metrics = False)[0]
-
-#yucatan (484031046)
-
-#San luis potosi (484024007)
-#Tamaulipas (484028010)
-
-#Coahuila (484005014)
-#nuevo leon (484019005)
-
-#Jalisco (484014028) {confident}
-#Nayarit (484018011)
-#Chiapas (484007052)
-
-
-
-#484025016
-explanation_sinaloa = gwr_lasso_explain_instance('484025016', 10, return_only_performance_metrics = False)[0]
-
-#484026045 (sonora)
-#484016057 (Michoacán)
-#484015100 (state of mexico)
-
-
-# explanation_urban = gwr_lasso_explain_instance('484031007', 10, return_only_performance_metrics = False)[0]
-
-# explanation_rural = gwr_lasso_explain_instance('484020382', 10, return_only_performance_metrics = False)[0]
-
-
-# explanation_hotspot = gwr_lasso_explain_instance('484016004', 10, return_only_performance_metrics = False)[0]
-
-# explanation_coldspot = gwr_lasso_explain_instance('484007095', 10, return_only_performance_metrics = False)[0]#484007095
-
-
-#484022014
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants")
-
-# explanation_moderate.to_csv('GWR_LIME_explanation_moderate_484014045.csv', index = False)
-# explanation_low.to_csv('GWR_LIME_explanation_low_484025014.csv', index = False)
-# explanation_high.to_csv('GWR_LIME_explanation_high_484026006.csv', index = False)
-
-#find R squared value for each local instance
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GW_LIME")
 
 list_of_munis = list(mex_migration_GWR_LIME['GEO2_MX'])
 
-
 performance_indicatiors_GWR_LIME = pd.DataFrame(columns = ['GEO2_MX', 'adjusted_r_squared', 'rmse', 'mae', 'residual', 'mape'])
-#    return [explanations_df, adjusted_r_squared, rmse, mae, instance_residual, mape, residuals, weighted_residuals, instance_predicted_value]
 
 
 for item in list_of_munis:
@@ -557,10 +417,6 @@ for item in list_of_munis:
     #performance_indicatiors_GWR_LIME = performance_indicatiors_GWR_LIME.append(row, ignore_index=True)
     performance_indicatiors_GWR_LIME = pd.concat([performance_indicatiors_GWR_LIME, pd.DataFrame([row])], ignore_index=True)
     
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants")
-
-####To execute 10/25
 
 performance_indicatiors_GWR_LIME.to_csv("all_performance_indicators_GWR_LIME.csv", index = False)
 
@@ -596,7 +452,7 @@ performance_indicatiors_GWR_LIME.to_csv("all_performance_indicators_GWR_LIME.csv
 
 
 
-###Experiment 1: Descriptive statistics for local r squared for k=10#################
+#Local Fidelity Experiment: Calculate median values of performance metrics (Refer to Section 3.3.3, paragraph 1 for further details)
 
 summary = performance_indicatiors_GWR_LIME['adjusted_r_squared'].describe()
 median = performance_indicatiors_GWR_LIME['adjusted_r_squared'].median()
@@ -604,7 +460,8 @@ percentiles = np.percentile(performance_indicatiors_GWR_LIME['adjusted_r_squared
 mean = performance_indicatiors_GWR_LIME['adjusted_r_squared'].mean()
 std_dev = stdev(performance_indicatiors_GWR_LIME['adjusted_r_squared'])
 
-# Create a summary DataFrame
+#Create a summary DataFrame for adjusted R-Squared
+
 summary_df_adj_rsquared = pd.DataFrame({
     'Mean': [mean],
     'Std Dev': [std_dev],
@@ -615,7 +472,7 @@ summary_df_adj_rsquared = pd.DataFrame({
     'Min' : min(performance_indicatiors_GWR_LIME['adjusted_r_squared'])
 }, index=['Summary'])
 
-###Descriptive statistics for rmse
+#Create a summary DataFrame for adjusted RMSE
 
 summary_rmse = performance_indicatiors_GWR_LIME['rmse'].describe()
 median_rmse = performance_indicatiors_GWR_LIME['rmse'].median()
@@ -634,6 +491,7 @@ summary_df_rmse = pd.DataFrame({
     'Min' : min(performance_indicatiors_GWR_LIME['rmse'])
 }, index=['Summary'])
 
+#Create a summary DataFrame for adjusted MAE
 
 summary_mae = performance_indicatiors_GWR_LIME['mae'].describe()
 median_mae = performance_indicatiors_GWR_LIME['mae'].median()
@@ -652,6 +510,7 @@ summary_df_mae = pd.DataFrame({
     'Min' : min(performance_indicatiors_GWR_LIME['mae'])
 }, index=['Summary'])
 
+#Create a summary DataFrame for adjusted MAPE
 
 summary_mape = performance_indicatiors_GWR_LIME['mape'].describe()
 median_mape = performance_indicatiors_GWR_LIME['mape'].median()
@@ -677,46 +536,37 @@ summary_df_rmse.to_csv('rmse_performance_metrics_summary_GWR_LIME.csv', index = 
 summary_df_mae.to_csv('mae_performance_metrics_summary_GWR_LIME.csv', index = False)
 summary_df_mape.to_csv('mape_performance_metrics_summary_GWR_LIME.csv', index = False)
 
-#store top 10 important features to be used for senstivity analysis experiment and other analytical tasks
 
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants\top_k_important_features\Original_top_10_features\GWR_LIME")
+#For each municipality, extract top 10 most important features for critical inferential tasks (See Section 4)
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GW_LIME\top_k_important_features")
 
 list_of_munis = list(mex_migration_GWR_LIME['GEO2_MX'])
 
-#ols_results_moderate = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484014045', 10, return_only_performance_metrics = False)[4]
 for item in list_of_munis:
     explanation= gwr_lasso_explain_instance(item, 10, return_only_performance_metrics = False)[0]
     #count number of satellite PC's, do k = k+n, where n= number of satellite PC's
     important_features = list(explanation['feature_name'])
-    
     # count_satellite = 0
     # for element in important_features:
     #     if 'Satellite' in element:
     #         count_satellite+=1
     # if count_satellite!=0:
     #     explanation= gwr_lasso_explain_instance(item, 10 + count_satellite, return_only_performance_metrics = False)[0]
-
     explanation.to_csv(f'GWR_LIME_explanation_{item}.csv', index = False)
 
 
 
 
+###Model 2: OLS LIME
 
-
-
-#################Model 2: OLS LIME#####################
-
+#Import LIME package
 import lime
 import lime.lime_tabular
 
 
-###Import dataset
+#Prepare dataset for processing
 mex_migration_OLS_LIME = mex_migration.copy()
 
-
-
-#Prepare for LIME explanations
 mex_migration_OLS_LIME['GEO2_MX'] = mex_migration_OLS_LIME['GEO2_MX'].astype(str)
 
 mex_migration_OLS_LIME = mex_migration_OLS_LIME.fillna(0)
@@ -742,13 +592,14 @@ def predict_migration(list_ids):
 
 
 
-#prepare data for OLS LIME
+#initiate the LIME Explainer instance for a tabular dataset with regression mode (See LIME documentation from the original authors for more information: https://github.com/marcotcr/lime )
 training_dataset = np.array(predictor_dataframe)
 
 explainer = lime.lime_tabular.LimeTabularExplainer(training_dataset, feature_names= predictor_columns, discretize_continuous=False, 
                                                   mode = 'regression', feature_selection = 'lasso_path')
 
 
+#Define a function to generate expalations for a given municipality
 def OLS_LIME_Instance_Explainer(instance_to_explain, inverse_array, no_of_features):
     exp = explainer.explain_instance(instance_to_explain, predict_fn = predict_migration, num_features=no_of_features, num_samples = len(training_dataset), list_of_prediction_id = inverse_array)
     #print(exp.as_list())
@@ -756,7 +607,7 @@ def OLS_LIME_Instance_Explainer(instance_to_explain, inverse_array, no_of_featur
     return([exp.as_list(), exp.score, list(exp.weights), exp.predicted_values])
 
 
-#Define function to select instance of interest
+#Define a function to select the instance of interest
 
 def OLS_LIME_Instance_Selector(explanatory_variables_df, explained_variable_df, instance_to_explain, number_of_features_k):
     #random_sample_of_interest = predicted_dataframe['GEO2_MX'].sample()
@@ -779,11 +630,8 @@ def OLS_LIME_Instance_Selector(explanatory_variables_df, explained_variable_df, 
 
 
 
-#Define a function that fetches performance scores, and optinally generates explanations
+#Define a function to extract performance metrics and top-k most important features (similar to the gwr_lime_expalin_instance function)
  
-
-
-
 def OLS_LIME_Explainer(explanatory_df, target_variable_df, instance_of_interest, number_of_features_k, return_only_performance_metrics = True, return_only_weights = False):
     [ols_results, original_order_for_rmse]  = OLS_LIME_Instance_Selector(explanatory_df, target_variable_df, instance_of_interest, number_of_features_k)
     r_squared = ols_results[1]
@@ -846,96 +694,16 @@ def OLS_LIME_Explainer(explanatory_df, target_variable_df, instance_of_interest,
     return [adjusted_r_squared, rmse, mae, instance_residual, mape, explanation_df, residuals_df, weighted_residuals, neighborhood_weights_df]
         
     
-    
-# ols_results_moderate = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484014045', 10, return_only_performance_metrics = False)[4]
-# ols_results_low = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484025014', 10, return_only_performance_metrics = False)[4]
-# ols_results_high = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484026006', 10, return_only_performance_metrics = False)[4] 
+#Generate LIME explanations for a given municipality
 
-# #OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484022014', 10, return_only_performance_metrics = False)[4]
-# ols_results_yucatan = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484031087', 20, return_only_performance_metrics = False)[4]
-# ols_results_sinaloa = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484010034', 10, return_only_performance_metrics = False)[4]
-# #484025003
 ols_results_oaxaca  = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484020475', 10, return_only_performance_metrics = False)[4]
 ols_results_aguacalientes  = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484001002', 10, return_only_performance_metrics = False)[4]
 
-#    explanation= OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, item, 10, return_only_performance_metrics = False)[4]
-
-# #484025003
-
-# ols_results_queretaro  = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484022014', 10, return_only_performance_metrics = False)[4]
-#484025003
 
 
+#Store performance metrics values for every municipality (TBC 01/10/2024)
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\OLS_LIME")
 
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants\top_k_important_features")
-
-
-# ols_results_moderate.to_csv('OLS_LIME_explanation_moderate_484014045.csv', index = False)
-# ols_results_low.to_csv('OLS_LIME_explanation_low_484025014.csv', index = False)
-# ols_results_high.to_csv('OLS_LIME_explanation_high_484026006.csv', index = False)
-
-
-##Extract neighborhood weights for analysis downstream
-# os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\neighborhood_weights\OLS-LIME")
-# list_of_munis = list(mex_migration_OLS_LIME['GEO2_MX'])
-
-# for item in list_of_munis[708:]:
-#     neighborhood_wts = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, item, 10, return_only_performance_metrics = True, return_only_weights = True) [7]
-#     neighborhood_wts.to_csv(f'OLS_LIME_weights_{item}.csv', index = False)
-
-
-ols_results_aguacalientes.to_csv('OLS_LIME_explanation_484001001.csv', index = False)
-
-ols_results_export  = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484012048', 10, return_only_performance_metrics = False)[4]
-ols_results_fit  = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484012048', 10, return_only_performance_metrics = True)[0]
-
-
-ols_results_export.to_csv('OLS_LIME_explanation_484008018.csv', index = False)
-
-
-
-
-
-#Extract residuals for a sample municipaliy for further analysis
-
-# [sample_residuals_OLS_LIME, sample_weighted_residuals_OLS_LIME] = OLS_LIME_Explainer(predictor_dataframe, predicted_dataframe, '484014045', 10, return_only_performance_metrics = True)[5:]
-
-
-
-
-# sample_residuals_OLS_LIME.to_csv('sample_residuals_OLS_LIME_484014045.csv', index = False)
-
-# sample_weighted_residuals_OLS_LIME.to_csv('sample_weoghted_residuals_OLS_LIME_484014045.csv', index = False)
-
-# sample_weighted_residuals_OLS_LIME = pd.read_csv('sample_weoghted_residuals_OLS_LIME_484014045.csv')
-
-# #Make QQ plot to check distribution
-
-
-# plt.figure(figsize=(6, 6))
-# stats.probplot(sample_residuals_OLS_LIME['residuals'], dist="norm", plot=plt)
-# plt.title("Q-Q Plot for residuals - OLS_LIME")
-# plt.xlabel("Theoretical Quantiles")
-# plt.ylabel("Sample Quantiles")
-# plt.show()
-
-# plt.figure(figsize=(6, 6))
-# stats.probplot(sample_weighted_residuals_OLS_LIME['weighted_residuals'], dist="norm", plot=plt)
-# plt.title("Q-Q Plot for weighted residuals - OLS_LIME")
-# plt.xlabel("Theoretical Quantiles")
-# plt.ylabel("Sample Quantiles")
-# plt.show()
-
-
-
-
-
-
-os.chdir(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants")
-
-
-#Store r-squared and rmse values for every municipality
 
 list_of_munis = list(mex_migration_OLS_LIME['GEO2_MX'])
 
