@@ -403,7 +403,7 @@ explanation_colima  = gwr_lasso_explain_instance('484016026', 10, return_only_pe
 
 ##For every municipality, return performance metrics values for local fidelity experiment (Refer Section 3.3.3, paragraph 1)
 
-os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GW_LIME")
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GWR")
 
 list_of_munis = list(mex_migration_GWR_LIME['GEO2_MX'])
 
@@ -538,7 +538,7 @@ summary_df_mape.to_csv('mape_performance_metrics_summary_GWR_LIME.csv', index = 
 
 
 #For each municipality, extract top 10 most important features for critical inferential tasks (See Section 4)
-os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GW_LIME\top_k_important_features")
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\GWR\top_k_important_features")
 
 list_of_munis = list(mex_migration_GWR_LIME['GEO2_MX'])
 
@@ -702,7 +702,7 @@ ols_results_aguacalientes  = OLS_LIME_Explainer(predictor_dataframe, predicted_d
 
 
 #Store performance metrics values for every municipality (TBC 01/10/2024)
-os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\OLS_LIME")
+os.chdir(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\OLS")
 
 
 list_of_munis = list(mex_migration_OLS_LIME['GEO2_MX'])
@@ -2194,12 +2194,12 @@ print(f"The list has been exported to {json_file_path}")
 
 
 
-variable_grouping_df = pd.read_csv(r"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\mexico_migration_with_crime_no_implicit_variable_grouping.csv")
+variable_grouping_df = pd.read_csv(r"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\mexico_migration_with_crime_no_implicit_variable_grouping.csv")
 
 
 group_counts = variable_grouping_df.groupby('feature_group').size().reset_index(name='Count')
 
-color_palette = {'Economic': '#1f77b4', 'Health': '#ff7f0e', 'Accessibility': '#2ca02c', 'Environment': '#d62728', 'Housing': '#9467bd', 'Household unit': '#8c564b', 'Satellite': '#e377c2', 'Demographic': '#17becf', 'Education': '#7f7f7f', 'Safety': '#bcbd22'}
+color_palette = {'Economic': '#1f77b4', 'Health': '#ff7f0e', 'Accessibility': '#2ca02c', 'Environment': '#d62728', 'Housing': '#9467bd', 'Satellite': '#e377c2', 'Demographic': '#17becf', 'Education': '#7f7f7f', 'Safety': '#bcbd22'}
 
 
 
@@ -2213,7 +2213,7 @@ import numpy as np
 
 def feature_importance_plotter(municipality_index, explanation_method, legend_position = 1.34, include_satellite = True):
     #aguascalientes
-    explanations = pd.read_csv(rf"D:\vsriva11\VADER Lab\graph_stuff-20230928T171307Z-001\graph_stuff\Explanations\target total_migrants\top_k_important_features\Original_top_10_features\{explanation_method}_LIME\{explanation_method}_LIME_explanation_{municipality_index}.csv")
+    explanations = pd.read_csv(rf"D:\vsriva11\VADER Lab\GW_LIME_VADER\XAI\data\Explanations\{explanation_method}\top_k_important_features\{explanation_method}_LIME_explanation_{municipality_index}.csv")
     
     if include_satellite == False:
         explanations = explanations[~explanations['feature_name'].str.contains('Satellite')]
