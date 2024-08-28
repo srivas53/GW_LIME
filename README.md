@@ -1,1 +1,1 @@
-# GW_LIME
+The repository consists two main parts. GraphSAGE contains all the code and data related to the GNN model used in this study. XAI contains all the code and data related to the GW-LIME and LIME models. 

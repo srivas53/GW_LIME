@@ -1,1 +1,5 @@
-data/
+XAI/data/
+XAI/senstivity_analysis_experiement/mexico2010_wcrime.csv
+XAI/senstivity_analysis_experiement/top_k_important_features
+XAI/senstivity_analysis_experiement/Senstivity_Analysis_Experiment_Results
+GraphSAGE/data
